@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -31,7 +32,8 @@ const (
 	FileName = "share.json"
 	// MarkerDir is the project directory that holds the marker.
 	MarkerDir = ".beacon"
-	// PathEnv overrides where the user file lives (tests, unusual homes).
+	// PathEnv overrides where the user file lives for the CLI (tests, unusual homes). The hooks
+	// ignore it: their environment can come from a repository (HookPath).
 	PathEnv = "BEACON_SHARE_SETTINGS_FILE"
 	// SchemaVersion is written into both files.
 	SchemaVersion = "beacon.share_settings.v1"
@@ -112,16 +114,23 @@ func (s *Settings) SetGlobal(state string) {
 	s.Auto.Enabled = state == GlobalOn
 }
 
-// DefaultPath is BEACON_SHARE_SETTINGS_FILE, or ~/.beacon/endpoint/share.json.
+// DefaultPath is BEACON_SHARE_SETTINGS_FILE, or HookPath.
 func DefaultPath() string {
 	if p := strings.TrimSpace(os.Getenv(PathEnv)); p != "" {
 		return p
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	return HookPath()
+}
+
+// HookPath is ~/.beacon/endpoint/share.json under the account's home directory, read from the
+// user database rather than $HOME, because some runtimes let a repository set the hooks'
+// environment. "" when the account has no home directory.
+func HookPath() string {
+	u, err := user.Current()
+	if err != nil || u.HomeDir == "" {
 		return ""
 	}
-	return filepath.Join(home, ".beacon", "endpoint", FileName)
+	return filepath.Join(u.HomeDir, ".beacon", "endpoint", FileName)
 }
 
 // MarkerPath is dir's project marker.

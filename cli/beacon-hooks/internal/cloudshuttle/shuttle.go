@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	defaultLogPath     = "/tmp/beacon/runtime.jsonl"
-	defaultStatePath   = "/tmp/beacon/shuttle-state.json"
+	defaultLogName     = "runtime.jsonl"
+	defaultStateName   = "shuttle-state.json"
 	defaultTokenURI    = "https://oauth2.googleapis.com/token"
 	defaultGCSEndpoint = "https://storage.googleapis.com"
 	defaultS3Region    = "us-east-1"
@@ -42,6 +42,10 @@ const (
 )
 
 var httpClient = http.DefaultClient
+
+// SandboxDir is the cloud sandbox's Beacon directory. The shuttle reads and writes only under it,
+// so an environment a repository supplies cannot select a host log. Tests point it elsewhere.
+var SandboxDir = "/tmp/beacon"
 var nowUTC = func() time.Time { return time.Now().UTC() }
 
 type Config struct {
@@ -87,7 +91,7 @@ type tokenResponse struct {
 }
 
 func ConfigFromEnv() Config {
-	statePath := firstEnvDefault(defaultStatePath, "BEACON_CLOUD_SHUTTLE_STATE")
+	statePath := inSandbox(firstEnv("BEACON_CLOUD_SHUTTLE_STATE"), defaultStateName)
 	upload := cloudUploadFromEnv()
 	bucket := strings.TrimSpace(os.Getenv("BEACON_CLOUD_GCS_BUCKET"))
 	prefix := strings.Trim(strings.TrimSpace(os.Getenv("BEACON_CLOUD_GCS_PREFIX")), "/")
@@ -97,7 +101,7 @@ func ConfigFromEnv() Config {
 	}
 	return Config{
 		Upload:         upload,
-		LogPath:        firstEnvDefault(defaultLogPath, "BEACON_CLOUD_LOG_PATH", "BEACON_ENDPOINT_LOG", "BEACON_LOG_PATH", "BEACON_RUNTIME_LOG"),
+		LogPath:        inSandbox(firstEnv("BEACON_CLOUD_LOG_PATH", "BEACON_ENDPOINT_LOG", "BEACON_LOG_PATH", "BEACON_RUNTIME_LOG"), defaultLogName),
 		StatePath:      statePath,
 		Bucket:         bucket,
 		Prefix:         prefix,
@@ -117,15 +121,35 @@ func ConfigFromEnv() Config {
 	}
 }
 
+// MaybeUpload runs only in a cloud sandbox (BEACON_ORIGIN=cloud), never on an endpoint whose
+// hooks merely see BEACON_CLOUD_* in their environment.
 func MaybeUpload(ctx context.Context, force bool) error {
+	if !cloudOrigin() {
+		return nil
+	}
 	return Upload(ctx, ConfigFromEnv(), force)
 }
 
+func cloudOrigin() bool {
+	return strings.TrimSpace(os.Getenv("BEACON_ORIGIN")) == "cloud"
+}
+
+// inSandbox is p when it lies under SandboxDir, else the default file there.
+func inSandbox(p, name string) string {
+	if filepath.IsAbs(p) {
+		rel, err := filepath.Rel(SandboxDir, p)
+		if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return p
+		}
+	}
+	return filepath.Join(SandboxDir, name)
+}
+
 func ResetFromEnv() error {
-	cfg := ConfigFromEnv()
-	if strings.TrimSpace(os.Getenv("BEACON_ORIGIN")) != "cloud" {
+	if !cloudOrigin() {
 		return nil
 	}
+	cfg := ConfigFromEnv()
 	if err := preserveExistingLog(cfg); err != nil {
 		return err
 	}
@@ -628,10 +652,10 @@ func normalizeConfig(cfg Config) Config {
 		}
 	}
 	if cfg.LogPath == "" {
-		cfg.LogPath = defaultLogPath
+		cfg.LogPath = filepath.Join(SandboxDir, defaultLogName)
 	}
 	if cfg.StatePath == "" {
-		cfg.StatePath = defaultStatePath
+		cfg.StatePath = filepath.Join(SandboxDir, defaultStateName)
 	}
 	if cfg.GCSEndpoint == "" {
 		cfg.GCSEndpoint = defaultGCSEndpoint
