@@ -37,8 +37,11 @@ func runSessionStart(cmd *cobra.Command, args []string) {
 	}
 
 	sessionID := resolveSessionID(input, platformFlag)
-	if err := cloudshuttle.ResetFromEnv(); err != nil {
-		platformLogger.Warn("Failed to reset cloud telemetry log", "error", err.Error())
+	// Only a new session resets the sandbox log: resume, clear and compact continue the same run.
+	if source := getFirstStr(input, "source"); source == "" || source == "startup" {
+		if err := cloudshuttle.ResetFromEnv(); err != nil {
+			platformLogger.Warn("Failed to reset cloud telemetry log", "error", err.Error())
+		}
 	}
 	if sessionID == "" {
 		if isDevinLikePlatform(platformFlag) {

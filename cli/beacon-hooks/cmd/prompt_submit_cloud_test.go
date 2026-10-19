@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,5 +95,32 @@ func TestRunPromptSubmitUploadsCursorCloudTelemetryToS3(t *testing.T) {
 	if !strings.Contains(uploadPath, "/telemetry-bucket/agent-traces/runtime/") ||
 		!strings.HasSuffix(uploadPath, "-cursor_cloud-conv-prompt.jsonl.gz") {
 		t.Fatalf("upload path = %q", uploadPath)
+	}
+}
+
+// Claude web's compact, clear and resume SessionStarts continue the run, so the log stays put.
+func TestRunSessionStartResetsCloudLogOnlyAtStartup(t *testing.T) {
+	setupHookConfigDirs(t)
+	platformFlag = "claude"
+	dir := t.TempDir()
+	prevSandbox := cloudshuttle.SandboxDir
+	cloudshuttle.SandboxDir = dir
+	t.Cleanup(func() { cloudshuttle.SandboxDir = prevSandbox })
+	logPath := filepath.Join(dir, "runtime.jsonl")
+	t.Setenv("BEACON_ORIGIN", "cloud")
+	t.Setenv("BEACON_ENDPOINT_LOG", logPath)
+	t.Setenv("BEACON_CLOUD_UPLOAD", "s3")
+	t.Setenv("BEACON_CLOUD_S3_BUCKET", "bucket")
+
+	for _, source := range []string{"compact", "startup"} {
+		if err := os.WriteFile(logPath, []byte("{\"event\":\"earlier\"}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runHookWithInput(t, runSessionStart, map[string]interface{}{"session_id": "sess-" + source, "source": source})
+		data, err := os.ReadFile(logPath)
+		kept := err == nil && strings.Contains(string(data), "earlier")
+		if kept != (source == "compact") {
+			t.Fatalf("source %s: earlier log kept = %v", source, kept)
+		}
 	}
 }
