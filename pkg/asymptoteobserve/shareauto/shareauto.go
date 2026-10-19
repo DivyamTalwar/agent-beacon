@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -124,13 +123,13 @@ func DefaultPath() string {
 
 // HookPath is ~/.beacon/endpoint/share.json under the account's home directory, read from the
 // user database rather than $HOME, because some runtimes let a repository set the hooks'
-// environment. "" when the account has no home directory.
+// environment. "" when the account is not in the user database or has no home directory.
 func HookPath() string {
-	u, err := user.Current()
-	if err != nil || u.HomeDir == "" {
+	home := accountHome()
+	if home == "" {
 		return ""
 	}
-	return filepath.Join(u.HomeDir, ".beacon", "endpoint", FileName)
+	return filepath.Join(home, ".beacon", "endpoint", FileName)
 }
 
 // MarkerPath is dir's project marker.

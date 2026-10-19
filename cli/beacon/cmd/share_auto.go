@@ -166,7 +166,7 @@ func shareAutoSet(cmd *cobra.Command, enable bool) error {
 	}
 	path := shareauto.DefaultPath()
 	if path == "" {
-		return errors.New("cannot find the home directory for the auto-share setting")
+		return errors.New("cannot find this account's home directory in the user database, where the hooks read the auto-share setting")
 	}
 	settings, err := shareauto.Load(path)
 	if err != nil {

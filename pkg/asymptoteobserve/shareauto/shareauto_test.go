@@ -195,3 +195,14 @@ func TestMarkerOffWinsAtItsDirectoryAndTheClosestDecides(t *testing.T) {
 		t.Fatalf("child off marker under a parent's entry = %+v", d)
 	}
 }
+
+// A repository can set the hooks' environment, so HookPath must not follow it.
+func TestHookPathIgnoresTheEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	t.Setenv("USER", "repo")
+	if p := HookPath(); strings.HasPrefix(p, dir) {
+		t.Fatalf("HookPath() = %s, resolved under the environment's home %s", p, dir)
+	}
+}
