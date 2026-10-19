@@ -91,7 +91,7 @@ type tokenResponse struct {
 }
 
 func ConfigFromEnv() Config {
-	statePath := inSandbox(firstEnv("BEACON_CLOUD_SHUTTLE_STATE"), defaultStateName)
+	statePath := inSandbox("BEACON_CLOUD_SHUTTLE_STATE", firstEnv("BEACON_CLOUD_SHUTTLE_STATE"), defaultStateName)
 	upload := cloudUploadFromEnv()
 	bucket := strings.TrimSpace(os.Getenv("BEACON_CLOUD_GCS_BUCKET"))
 	prefix := strings.Trim(strings.TrimSpace(os.Getenv("BEACON_CLOUD_GCS_PREFIX")), "/")
@@ -101,7 +101,7 @@ func ConfigFromEnv() Config {
 	}
 	return Config{
 		Upload:         upload,
-		LogPath:        inSandbox(firstEnv("BEACON_CLOUD_LOG_PATH", "BEACON_ENDPOINT_LOG", "BEACON_LOG_PATH", "BEACON_RUNTIME_LOG"), defaultLogName),
+		LogPath:        inSandbox("log path", firstEnv(logPathKeys...), defaultLogName),
 		StatePath:      statePath,
 		Bucket:         bucket,
 		Prefix:         prefix,
@@ -134,15 +134,24 @@ func cloudOrigin() bool {
 	return strings.TrimSpace(os.Getenv("BEACON_ORIGIN")) == "cloud"
 }
 
-// inSandbox is p when it lies under SandboxDir, else the default file there.
-func inSandbox(p, name string) string {
+// logPathKeys is the hook logger's order (logging.endpointLogPath), so both name the same file.
+var logPathKeys = []string{"BEACON_ENDPOINT_LOG", "BEACON_CLOUD_LOG_PATH", "BEACON_LOG_PATH", "BEACON_RUNTIME_LOG"}
+
+// inSandbox is p when it lies under SandboxDir, else the default file there. A refused p is
+// reported on stderr, never stdout, which some runtimes add to the model's context.
+func inSandbox(label, p, name string) string {
+	fallback := filepath.Join(SandboxDir, name)
+	if p == "" {
+		return fallback
+	}
 	if filepath.IsAbs(p) {
 		rel, err := filepath.Rel(SandboxDir, p)
 		if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return p
 		}
 	}
-	return filepath.Join(SandboxDir, name)
+	fmt.Fprintf(os.Stderr, "beacon-hooks: cloud shuttle ignores %s %s outside %s; using %s\n", label, p, SandboxDir, fallback)
+	return fallback
 }
 
 func ResetFromEnv() error {
