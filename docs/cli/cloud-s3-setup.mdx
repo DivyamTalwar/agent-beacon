@@ -14,7 +14,7 @@ beacon cloud s3 setup
 
 The helper creates or validates a bucket, blocks public access, creates a
 dedicated IAM user, grants prefix-scoped `s3:PutObject`, creates one access key,
-and prints `BEACON_CLOUD_UPLOAD=s3`, `BEACON_CLOUD_S3_BUCKET`,
+and prints `BEACON_ORIGIN=cloud`, `BEACON_CLOUD_UPLOAD=s3`, `BEACON_CLOUD_S3_BUCKET`,
 `BEACON_CLOUD_S3_PREFIX`, `BEACON_CLOUD_S3_REGION`, `AWS_ACCESS_KEY_ID`, and
 `AWS_SECRET_ACCESS_KEY` for cloud agents.
 

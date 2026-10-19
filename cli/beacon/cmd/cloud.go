@@ -195,7 +195,7 @@ func cloudLogPath(p string) (string, error) {
 }
 
 func renderClaudeWebHooks(binaryPath, logPath string) string {
-	prefix := fmt.Sprintf("BEACON_ENDPOINT_MODE=1 BEACON_ENDPOINT_LOG=%s %s --platform claude", shellQuote(logPath), shellQuote(binaryPath))
+	prefix := fmt.Sprintf("BEACON_ENDPOINT_MODE=1 BEACON_ORIGIN=cloud BEACON_ENDPOINT_LOG=%s %s --platform claude", shellQuote(logPath), shellQuote(binaryPath))
 	hooks := map[string][]map[string]interface{}{
 		"SessionStart": {
 			{"hooks": []map[string]interface{}{{"type": "command", "command": prefix + " session-start"}}},
@@ -342,6 +342,7 @@ func runCloudGCSSetup(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Printf("BEACON_ORIGIN=cloud\n")
 		fmt.Printf("BEACON_CLOUD_GCS_BUCKET=%s\n", cloudOpts.bucket)
 		fmt.Printf("BEACON_CLOUD_GCS_PREFIX=%s\n", strings.Trim(cloudOpts.prefix, "/"))
 		fmt.Printf("BEACON_CLOUD_GCS_CREDENTIALS_B64=%s\n", base64.StdEncoding.EncodeToString(data))

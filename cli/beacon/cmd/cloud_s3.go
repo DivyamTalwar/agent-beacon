@@ -64,6 +64,7 @@ func runCloudS3Setup(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Printf("BEACON_ORIGIN=cloud\n")
 		fmt.Printf("BEACON_CLOUD_UPLOAD=s3\n")
 		fmt.Printf("BEACON_CLOUD_S3_BUCKET=%s\n", cloudOpts.bucket)
 		fmt.Printf("BEACON_CLOUD_S3_PREFIX=%s\n", strings.Trim(cloudOpts.prefix, "/"))

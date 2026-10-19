@@ -124,6 +124,7 @@ func TestRenderClaudeWebHooks(t *testing.T) {
 		`"Stop"`,
 		`"SessionEnd"`,
 		`BEACON_ENDPOINT_MODE=1`,
+		`BEACON_ORIGIN=cloud`,
 		`BEACON_ENDPOINT_LOG=/tmp/beacon/runtime.jsonl`,
 		`/tmp/beacon/bin/beacon-hooks --platform claude`,
 	} {
