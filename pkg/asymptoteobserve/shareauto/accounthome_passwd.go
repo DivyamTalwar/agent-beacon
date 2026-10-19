@@ -5,22 +5,20 @@ package shareauto
 import (
 	"os"
 	"strconv"
-	"strings"
+	"sync"
 )
 
-// accountHome reads /etc/passwd itself: in this build os/user's Current and LookupId fall back
-// to $HOME when the uid is not listed there. An unlisted uid has no home, so auto-share is off.
-func accountHome() string {
-	data, err := os.ReadFile("/etc/passwd")
-	if err != nil {
-		return ""
-	}
+var accountHomeOnce = sync.OnceValue(func() string {
 	uid := strconv.Itoa(os.Getuid())
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Split(strings.TrimSpace(line), ":")
-		if len(fields) >= 6 && fields[2] == uid && !strings.HasPrefix(fields[0], "#") {
-			return fields[5]
+	if data, err := os.ReadFile("/etc/passwd"); err == nil {
+		if home := passwdHome(string(data), uid); home != "" {
+			return home
 		}
 	}
-	return ""
-}
+	return getentHome(uid)
+})
+
+// accountHome reads the user database itself: in this build os/user's Current and LookupId fall
+// back to $HOME when the uid is not in /etc/passwd. getent reaches directory-service accounts
+// through NSS; without it an unlisted uid has no home, so auto-share is off.
+func accountHome() string { return accountHomeOnce() }

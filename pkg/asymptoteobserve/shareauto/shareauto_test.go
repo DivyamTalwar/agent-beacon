@@ -206,3 +206,22 @@ func TestHookPathIgnoresTheEnvironment(t *testing.T) {
 		t.Fatalf("HookPath() = %s, resolved under the environment's home %s", p, dir)
 	}
 }
+
+// getent supplies directory-service homes, and the hooks' environment does not reach it.
+func TestGetentHomeRunsWithoutTheEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture")
+	}
+	fake := filepath.Join(t.TempDir(), "getent")
+	script := "#!/bin/sh\necho \"ldapuser:*:$2:100::${HOME:-/home/ldapuser}:/bin/sh\"\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := getentPaths
+	getentPaths = []string{filepath.Join(t.TempDir(), "missing"), fake}
+	t.Cleanup(func() { getentPaths = prev })
+	t.Setenv("HOME", t.TempDir())
+	if got := getentHome("424242"); got != "/home/ldapuser" {
+		t.Fatalf("getentHome = %q, want /home/ldapuser", got)
+	}
+}

@@ -113,12 +113,21 @@ func (s *Settings) SetGlobal(state string) {
 	s.Auto.Enabled = state == GlobalOn
 }
 
-// DefaultPath is BEACON_SHARE_SETTINGS_FILE, or HookPath.
+// DefaultPath is BEACON_SHARE_SETTINGS_FILE, or HookPath, or the file under $HOME when the user
+// database has no home for the account. The CLI runs in the person's own shell, so its $HOME is
+// theirs; the hooks never take this fallback.
 func DefaultPath() string {
 	if p := strings.TrimSpace(os.Getenv(PathEnv)); p != "" {
 		return p
 	}
-	return HookPath()
+	if p := HookPath(); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".beacon", "endpoint", FileName)
 }
 
 // HookPath is ~/.beacon/endpoint/share.json under the account's home directory, read from the
