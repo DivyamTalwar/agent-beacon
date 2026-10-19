@@ -102,14 +102,31 @@ func init() {
 	shareAutoEnableCmd.Flags().BoolVar(&shareAutoOpts.yes, "yes", false, "Enable public auto-share without asking")
 }
 
+// shareAutoHookPath is the file the hooks read; tests replace it.
+var shareAutoHookPath = shareauto.HookPath
+
+// shareAutoHookMismatch says why the hooks will not read path, or "" when they do.
+func shareAutoHookMismatch(path string) string {
+	hook := shareAutoHookPath()
+	if hook == "" {
+		return "the hooks on this machine cannot confirm this account's home directory, so auto-share will not apply to hook sessions"
+	}
+	if filepath.Clean(hook) != filepath.Clean(path) {
+		return fmt.Sprintf("the hooks read %s, not %s (%s), so this setting will not apply to hook sessions", hook, path, shareauto.PathEnv)
+	}
+	return ""
+}
+
 type shareAutoStatus struct {
-	SettingsPath    string `json:"settings_path"`
-	Directory       string `json:"directory"`
-	Enabled         bool   `json:"enabled"`
-	Visibility      string `json:"visibility,omitempty"`
-	Source          string `json:"source,omitempty"`
-	Project         string `json:"project,omitempty"`
-	UntrustedMarker string `json:"untrusted_marker,omitempty"`
+	SettingsPath string `json:"settings_path"`
+	// HookSettingsPath is the file the hooks read, when it is not SettingsPath.
+	HookSettingsPath string `json:"hook_settings_path,omitempty"`
+	Directory        string `json:"directory"`
+	Enabled          bool   `json:"enabled"`
+	Visibility       string `json:"visibility,omitempty"`
+	Source           string `json:"source,omitempty"`
+	Project          string `json:"project,omitempty"`
+	UntrustedMarker  string `json:"untrusted_marker,omitempty"`
 	// Overridden is the project whose enabled entry is overridden here: by the off switch for
 	// every session (source "user") or by the repository's opt-out file (source "marker").
 	Overridden     string `json:"overridden,omitempty"`
@@ -168,8 +185,8 @@ func shareAutoSet(cmd *cobra.Command, enable bool) error {
 	if path == "" {
 		return errors.New("cannot find the home directory for the auto-share setting")
 	}
-	if enable && shareauto.HookPath() == "" {
-		fmt.Fprintln(cmd.ErrOrStderr(), "warning: the hooks on this machine cannot confirm this account's home directory, so auto-share will not apply to hook sessions")
+	if w := shareAutoHookMismatch(path); enable && w != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 	}
 	settings, err := shareauto.Load(path)
 	if err != nil {
@@ -332,6 +349,9 @@ func runShareAutoStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	status := buildShareAutoStatus(path, settings, dir)
+	if shareAutoHookMismatch(path) != "" {
+		status.HookSettingsPath = shareAutoHookPath()
+	}
 	out := cmd.OutOrStdout()
 	if shareAutoOpts.jsonOutput {
 		return json.NewEncoder(out).Encode(map[string]any{"ok": true, "data": status})
@@ -381,6 +401,9 @@ func runShareAutoStatus(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(out, "Beacon Cloud forwarding: %s\n", cloud)
 	fmt.Fprintf(out, "Settings: %s\n", status.SettingsPath)
+	if w := shareAutoHookMismatch(path); w != "" {
+		fmt.Fprintf(out, "warning: %s\n", w)
+	}
 	for _, w := range status.Warnings {
 		fmt.Fprintf(out, "warning: %s\n", w)
 	}

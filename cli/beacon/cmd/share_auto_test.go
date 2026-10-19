@@ -33,6 +33,9 @@ func shareAutoTestEnv(t *testing.T, connected bool, mode string) string {
 	env := newShareEnv(t)
 	path := filepath.Join(env.home, ".beacon", "endpoint", shareauto.FileName)
 	t.Setenv(shareauto.PathEnv, path)
+	prevHook := shareAutoHookPath
+	shareAutoHookPath = func() string { return path }
+	t.Cleanup(func() { shareAutoHookPath = prevHook })
 	prev := shareAutoCloud
 	shareAutoCloud = func() (bool, string) { return connected, mode }
 	t.Cleanup(func() { shareAutoCloud = prev })
@@ -58,6 +61,11 @@ func TestShareAutoEnableAndDisable(t *testing.T) {
 	settings, _ = shareauto.Load(path)
 	if settings.Auto.Enabled {
 		t.Fatalf("still enabled: %+v", settings)
+	}
+	hookPath := filepath.Join(t.TempDir(), shareauto.FileName)
+	shareAutoHookPath = func() string { return hookPath }
+	if _, stderr, _ := runShareAuto(t, "enable"); !strings.Contains(stderr, "the hooks read "+hookPath) {
+		t.Fatalf("enable with an override the hooks do not read: stderr=%q", stderr)
 	}
 }
 
