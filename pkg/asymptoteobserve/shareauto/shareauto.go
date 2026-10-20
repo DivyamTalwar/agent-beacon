@@ -113,16 +113,38 @@ func (s *Settings) SetGlobal(state string) {
 	s.Auto.Enabled = state == GlobalOn
 }
 
-// DefaultPath is BEACON_SHARE_SETTINGS_FILE, or HookPath, or the file under $HOME when the user
-// database has no home for the account. The CLI runs in the person's own shell, so its $HOME is
-// theirs; the hooks never take this fallback.
+// DefaultPath is the CLI's settings file: BEACON_SHARE_SETTINGS_FILE, else the file under the
+// account's home from the user database (AccountPath), else EnvPath when that lookup fails. It does
+// not depend on which files exist, so enable and status resolve the same file. The CLI runs in the
+// person's own shell, so its environment is theirs and the lookup's cost does not matter; the
+// hooks use HookPath and never take the override or the $HOME fallback.
 func DefaultPath() string {
 	if p := strings.TrimSpace(os.Getenv(PathEnv)); p != "" {
 		return p
 	}
-	if p := HookPath(); p != "" {
+	if p := AccountPath(); p != "" {
 		return p
 	}
+	return EnvPath()
+}
+
+// lookupAccountHome is the build's user-database lookup (accountHome); tests replace it.
+var lookupAccountHome = accountHome
+
+// AccountPath is ~/.beacon/endpoint/share.json under the account's home directory, read from the
+// user database rather than $HOME, because some runtimes let a repository set the hooks'
+// environment. "" when the account is not in the user database or has no home directory.
+func AccountPath() string {
+	home := lookupAccountHome()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".beacon", "endpoint", FileName)
+}
+
+// EnvPath is ~/.beacon/endpoint/share.json under os.UserHomeDir ($HOME, USERPROFILE on Windows),
+// "" when there is none. It gates HookPath.
+func EnvPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ""
@@ -130,31 +152,19 @@ func DefaultPath() string {
 	return filepath.Join(home, ".beacon", "endpoint", FileName)
 }
 
-// lookupAccountHome is the build's user-database lookup (accountHome); tests replace it.
-var lookupAccountHome = accountHome
-
-// HookPath is ~/.beacon/endpoint/share.json under the account's home directory, read from the
-// user database rather than $HOME, because some runtimes let a repository set the hooks'
-// environment. "" when the account is not in the user database or has no home directory.
-//
-// The lookup runs only when that file exists under $HOME (USERPROFILE on Windows): getent, a
+// HookPath is the file the hooks read: AccountPath, looked up only when EnvPath exists. getent, a
 // directory-bound Mac's user.Current and a domain account's profile can each reach a directory
 // server, and every hook process would otherwise pay that with auto-share never turned on. $HOME
-// decides only whether the lookup runs, never which file is read. The gate is checked on every
-// call, so the CLI sees the hooks' answer once it has written the file.
+// decides only whether the lookup runs, never which file is read.
 func HookPath() string {
-	envHome, err := os.UserHomeDir()
-	if err != nil || envHome == "" {
+	env := EnvPath()
+	if env == "" {
 		return ""
 	}
-	if _, err := os.Stat(filepath.Join(envHome, ".beacon", "endpoint", FileName)); err != nil {
+	if _, err := os.Stat(env); err != nil {
 		return ""
 	}
-	home := lookupAccountHome()
-	if home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".beacon", "endpoint", FileName)
+	return AccountPath()
 }
 
 // MarkerPath is dir's project marker.

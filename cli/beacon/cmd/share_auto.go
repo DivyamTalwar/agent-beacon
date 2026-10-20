@@ -146,22 +146,28 @@ func init() {
 	shareAutoEnableCmd.Flags().BoolVar(&shareAutoOpts.yes, "yes", false, "Enable public auto-share without asking")
 }
 
-// shareAutoHookPath is the file the hooks read; tests replace it.
-var shareAutoHookPath = shareauto.HookPath
+// shareAutoHookPath is the file the hooks read once their gate passes (shareauto.HookPath); tests
+// replace it.
+var shareAutoHookPath = shareauto.AccountPath
 
 // shareAutoHookMismatch says why the hooks will not read path, or "" when they do or path does not
-// exist (nothing is enabled). It is checked after path is written, because the hooks look up the
-// account's home only once a settings file exists under $HOME (shareauto.HookPath).
+// exist (nothing is enabled). It runs after path is written: the hooks read the account's file
+// only when $HOME has a settings file too (shareauto.HookPath).
 func shareAutoHookMismatch(path string) string {
 	if _, err := os.Stat(path); err != nil {
 		return ""
 	}
 	hook := shareAutoHookPath()
 	if hook == "" {
-		return "the hooks read settings only from the account's home directory, which this machine cannot confirm or which has no settings file, so auto-share will not apply to hook sessions"
+		return "the hooks on this machine cannot confirm this account's home directory, so auto-share will not apply to hook sessions"
 	}
 	if filepath.Clean(hook) != filepath.Clean(path) {
 		return fmt.Sprintf("the hooks read %s, not %s (%s), so this setting will not apply to hook sessions", hook, path, shareauto.PathEnv)
+	}
+	if env := shareauto.EnvPath(); env != "" && filepath.Clean(env) != filepath.Clean(hook) {
+		if _, err := os.Stat(env); err != nil {
+			return fmt.Sprintf("the hooks read %s only when $HOME also has %s, so this setting will not apply to hook sessions with this $HOME", hook, env)
+		}
 	}
 	return ""
 }
@@ -400,8 +406,8 @@ func runShareAutoStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	status := buildShareAutoStatus(path, settings, dir)
-	if shareAutoHookMismatch(path) != "" {
-		status.HookSettingsPath = shareAutoHookPath()
+	if hook := shareAutoHookPath(); shareAutoHookMismatch(path) != "" && hook != "" && filepath.Clean(hook) != filepath.Clean(path) {
+		status.HookSettingsPath = hook
 	}
 	out := cmd.OutOrStdout()
 	if shareAutoOpts.jsonOutput {

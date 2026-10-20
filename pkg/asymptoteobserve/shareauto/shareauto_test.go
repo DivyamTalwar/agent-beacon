@@ -243,7 +243,20 @@ func TestHookPathLooksUpTheAccountOnlyWithSettings(t *testing.T) {
 	if err := Save(filepath.Join(envHome, ".beacon", "endpoint", FileName), Settings{}); err != nil {
 		t.Fatal(err)
 	}
-	if p, want := HookPath(), filepath.Join(account, ".beacon", "endpoint", FileName); p != want || lookups != 1 {
-		t.Fatalf("HookPath with settings = %q after %d lookups, want %q after 1", p, lookups, want)
+	accountPath := filepath.Join(account, ".beacon", "endpoint", FileName)
+	if p := HookPath(); p != accountPath || lookups != 1 {
+		t.Fatalf("HookPath with settings = %q after %d lookups, want %q after 1", p, lookups, accountPath)
+	}
+	// The CLI's file does not follow the gate: enable before the file exists and status after it
+	// both resolve the account's file, though $HOME differs.
+	if err := os.Remove(filepath.Join(envHome, ".beacon", "endpoint", FileName)); err != nil {
+		t.Fatal(err)
+	}
+	before := DefaultPath()
+	if err := Save(filepath.Join(envHome, ".beacon", "endpoint", FileName), Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	if after := DefaultPath(); before != accountPath || after != accountPath {
+		t.Fatalf("DefaultPath = %q before and %q after the $HOME file exists, want %q", before, after, accountPath)
 	}
 }

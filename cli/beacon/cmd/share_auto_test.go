@@ -69,6 +69,14 @@ func TestShareAutoEnableAndDisable(t *testing.T) {
 	if _, stderr, _ := runShareAuto(t, "enable"); !strings.Contains(stderr, "the hooks read "+hookPath) {
 		t.Fatalf("enable with an override the hooks do not read: stderr=%q", stderr)
 	}
+	// The hooks read the account's file only when $HOME has one too.
+	shareAutoHookPath = func() string { return path }
+	otherHome := t.TempDir()
+	t.Setenv("HOME", otherHome)
+	t.Setenv("USERPROFILE", otherHome)
+	if _, stderr, _ := runShareAuto(t, "enable"); !strings.Contains(stderr, "only when $HOME also has") {
+		t.Fatalf("enable with a $HOME the hooks skip: stderr=%q", stderr)
+	}
 }
 
 func TestShareAutoWarnsWithoutCloudOrContent(t *testing.T) {
