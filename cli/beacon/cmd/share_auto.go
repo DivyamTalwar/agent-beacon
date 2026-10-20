@@ -149,8 +149,14 @@ func init() {
 // shareAutoHookPath is the file the hooks read; tests replace it.
 var shareAutoHookPath = shareauto.HookPath
 
-// shareAutoHookMismatch says why the hooks will not read path, or "" when they do.
+// shareAutoHookMismatch says why the hooks will not read path, or "" when they do or path does not
+// exist (nothing is enabled). It is checked after path is written: on a static Linux build an
+// account missing from /etc/passwd gets its hook home from getent only once a settings file
+// exists (shareauto.HookPath).
 func shareAutoHookMismatch(path string) string {
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
 	hook := shareAutoHookPath()
 	if hook == "" {
 		return "the hooks on this machine cannot confirm this account's home directory, so auto-share will not apply to hook sessions"
@@ -229,9 +235,6 @@ func shareAutoSet(cmd *cobra.Command, enable bool) error {
 	if path == "" {
 		return errors.New("cannot find the home directory for the auto-share setting")
 	}
-	if w := shareAutoHookMismatch(path); enable && w != "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
-	}
 	settings, err := shareauto.Load(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w (fix or remove it, then retry)", path, err)
@@ -272,6 +275,9 @@ func shareAutoSet(cmd *cobra.Command, enable bool) error {
 	}
 	if err := shareauto.Save(path, settings); err != nil {
 		return err
+	}
+	if w := shareAutoHookMismatch(path); enable && w != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 	}
 	if project != "" {
 		if err := shareauto.SaveMarker(project, shareauto.Marker{Auto: shareauto.Auto{Enabled: enable, Visibility: visibility}}); err != nil {

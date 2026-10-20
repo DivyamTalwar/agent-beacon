@@ -8,17 +8,20 @@ import (
 	"sync"
 )
 
-var accountHomeOnce = sync.OnceValue(func() string {
-	uid := strconv.Itoa(os.Getuid())
-	if data, err := os.ReadFile("/etc/passwd"); err == nil {
-		if home := passwdHome(string(data), uid); home != "" {
-			return home
+var (
+	accountUID = strconv.Itoa(os.Getuid())
+	listedHome = sync.OnceValue(func() string {
+		data, err := os.ReadFile("/etc/passwd")
+		if err != nil {
+			return ""
 		}
-	}
-	return getentHome(uid)
-})
+		return passwdHome(string(data), accountUID)
+	})
+	directoryHome = sync.OnceValue(func() string { return getentHome(accountUID) })
+)
 
 // accountHome reads the user database itself: in this build os/user's Current and LookupId fall
 // back to $HOME when the uid is not in /etc/passwd. getent reaches directory-service accounts
-// through NSS; without it an unlisted uid has no home, so auto-share is off.
-func accountHome() string { return accountHomeOnce() }
+// through NSS, only once a settings file exists (lookupAccountHome); otherwise an unlisted uid
+// has no home, so auto-share is off.
+func accountHome() string { return lookupAccountHome(listedHome, directoryHome) }

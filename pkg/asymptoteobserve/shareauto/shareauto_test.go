@@ -225,3 +225,38 @@ func TestGetentHomeRunsWithoutTheEnvironment(t *testing.T) {
 		t.Fatalf("getentHome = %q, want /home/ldapuser", got)
 	}
 }
+
+// A uid missing from /etc/passwd must not fork getent (an NSS lookup that can reach the network)
+// on every hook until a settings file exists under $HOME.
+func TestLookupAccountHomeSkipsGetentWithoutSettings(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture")
+	}
+	dir := t.TempDir()
+	ran := filepath.Join(dir, "ran")
+	fake := filepath.Join(dir, "getent")
+	script := "#!/bin/sh\ntouch " + ran + "\necho \"ldapuser:*:$2:100::/home/ldapuser:/bin/sh\"\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := getentPaths
+	getentPaths = []string{fake}
+	t.Cleanup(func() { getentPaths = prev })
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	unlisted := func() string { return "" }
+	lookup := func() string { return getentHome("424242") }
+
+	if got := lookupAccountHome(unlisted, lookup); got != "" {
+		t.Fatalf("lookupAccountHome without settings = %q, want \"\"", got)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Fatal("getent ran with no settings file under $HOME")
+	}
+	if err := Save(filepath.Join(home, ".beacon", "endpoint", FileName), Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := lookupAccountHome(unlisted, lookup); got != "/home/ldapuser" {
+		t.Fatalf("lookupAccountHome with settings = %q, want /home/ldapuser", got)
+	}
+}
