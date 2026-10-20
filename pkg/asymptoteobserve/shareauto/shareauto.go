@@ -130,11 +130,27 @@ func DefaultPath() string {
 	return filepath.Join(home, ".beacon", "endpoint", FileName)
 }
 
+// lookupAccountHome is the build's user-database lookup (accountHome); tests replace it.
+var lookupAccountHome = accountHome
+
 // HookPath is ~/.beacon/endpoint/share.json under the account's home directory, read from the
 // user database rather than $HOME, because some runtimes let a repository set the hooks'
 // environment. "" when the account is not in the user database or has no home directory.
+//
+// The lookup runs only when that file exists under $HOME (USERPROFILE on Windows): getent, a
+// directory-bound Mac's user.Current and a domain account's profile can each reach a directory
+// server, and every hook process would otherwise pay that with auto-share never turned on. $HOME
+// decides only whether the lookup runs, never which file is read. The gate is checked on every
+// call, so the CLI sees the hooks' answer once it has written the file.
 func HookPath() string {
-	home := accountHome()
+	envHome, err := os.UserHomeDir()
+	if err != nil || envHome == "" {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(envHome, ".beacon", "endpoint", FileName)); err != nil {
+		return ""
+	}
+	home := lookupAccountHome()
 	if home == "" {
 		return ""
 	}

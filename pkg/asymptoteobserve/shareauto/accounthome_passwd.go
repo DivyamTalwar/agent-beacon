@@ -22,6 +22,10 @@ var (
 
 // accountHome reads the user database itself: in this build os/user's Current and LookupId fall
 // back to $HOME when the uid is not in /etc/passwd. getent reaches directory-service accounts
-// through NSS, only once a settings file exists (lookupAccountHome); otherwise an unlisted uid
-// has no home, so auto-share is off.
-func accountHome() string { return lookupAccountHome(listedHome, directoryHome) }
+// through NSS; without it an unlisted uid has no home, so auto-share is off.
+func accountHome() string {
+	if home := listedHome(); home != "" {
+		return home
+	}
+	return directoryHome()
+}

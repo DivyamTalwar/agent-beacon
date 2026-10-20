@@ -150,16 +150,15 @@ func init() {
 var shareAutoHookPath = shareauto.HookPath
 
 // shareAutoHookMismatch says why the hooks will not read path, or "" when they do or path does not
-// exist (nothing is enabled). It is checked after path is written: on a static Linux build an
-// account missing from /etc/passwd gets its hook home from getent only once a settings file
-// exists (shareauto.HookPath).
+// exist (nothing is enabled). It is checked after path is written, because the hooks look up the
+// account's home only once a settings file exists under $HOME (shareauto.HookPath).
 func shareAutoHookMismatch(path string) string {
 	if _, err := os.Stat(path); err != nil {
 		return ""
 	}
 	hook := shareAutoHookPath()
 	if hook == "" {
-		return "the hooks on this machine cannot confirm this account's home directory, so auto-share will not apply to hook sessions"
+		return "the hooks read settings only from the account's home directory, which this machine cannot confirm or which has no settings file, so auto-share will not apply to hook sessions"
 	}
 	if filepath.Clean(hook) != filepath.Clean(path) {
 		return fmt.Sprintf("the hooks read %s, not %s (%s), so this setting will not apply to hook sessions", hook, path, shareauto.PathEnv)
