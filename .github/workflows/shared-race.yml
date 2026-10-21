@@ -1,0 +1,189 @@
+name: B2-14 exact-source shared race
+
+# Temporary fork-only verification infrastructure; not an upstream product change.
+"on":
+  push:
+    branches:
+      - test/shared-race-validation
+
+permissions:
+  contents: read
+
+jobs:
+  shared-race:
+    if: >-
+      github.repository == 'DivyamTalwar/agent-beacon' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/test/shared-race-validation' &&
+      github.event.repository.private == false &&
+      github.event.repository.fork == true
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRODUCT_SHA: beab0061274fbe055757ffd93e8ef92dd35da0ca
+      MODULE_MANIFEST_SHA256: 8a16099fea80e43cd750835da3f288dc0f1945b8cc2c0c02eb5b192c4a51d924
+      INFRA_SHA: ${{ github.sha }}
+      WORKFLOW_SHA: ${{ github.workflow_sha }}
+      WORKFLOW_REF: ${{ github.workflow_ref }}
+      RUN_PROOF_ID: ${{ github.run_id }}
+      RUN_PROOF_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Read exact infrastructure commit and workflow
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: DivyamTalwar/agent-beacon
+          ref: ${{ github.sha }}
+          path: infrastructure
+          fetch-depth: 2
+          persist-credentials: false
+          sparse-checkout: .github/workflows/shared-race.yml
+          sparse-checkout-cone-mode: false
+          submodules: false
+          lfs: false
+
+      - name: Verify infrastructure-only child and print workflow proof
+        run: |
+          set -euo pipefail
+          test "$(git -C infrastructure rev-parse HEAD)" = "$INFRA_SHA"
+          test "$WORKFLOW_SHA" = "$INFRA_SHA"
+          test "$(git -C infrastructure rev-parse HEAD^)" = "$PRODUCT_SHA"
+          test "$(git -C infrastructure diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/shared-race.yml'
+          printf 'run_id=%s attempt=%s infra_sha=%s workflow_sha=%s\n' "$RUN_PROOF_ID" "$RUN_PROOF_ATTEMPT" "$INFRA_SHA" "$WORKFLOW_SHA"
+          printf 'workflow_ref=%s\n' "$WORKFLOW_REF"
+          shasum -a 256 infrastructure/.github/workflows/shared-race.yml
+
+      - name: Checkout immutable reviewed product source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: DivyamTalwar/agent-beacon
+          ref: beab0061274fbe055757ffd93e8ef92dd35da0ca
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          lfs: false
+
+      - name: Set up exact declared toolchain without dependency cache
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.2'
+          check-latest: false
+          cache: false
+
+      - name: Prepare isolated directories and source verifier
+        run: |
+          set -euo pipefail
+          run_root="$(mktemp -d "$RUNNER_TEMP/b2-14-race.XXXXXX")"
+          go_bin="$(command -v go)"
+          python_bin="$(command -v python3)"
+          test -x "$go_bin"
+          test -x "$python_bin"
+          mkdir -p "$run_root"/{home,xdg-config,xdg-data,xdg-cache,tmp,go-tmp,go-build,go-mod,go-path}
+          printf 'B2_RUN_ROOT=%s\nB2_GO_BIN=%s\nB2_PYTHON_BIN=%s\n' "$run_root" "$go_bin" "$python_bin" >> "$GITHUB_ENV"
+          cat > "$run_root/verify-source.py" <<'SOURCE_PROOF'
+          import hashlib, os, pathlib, stat, subprocess, sys
+          root = pathlib.Path(sys.argv[1])
+          expected = os.environ['PRODUCT_SHA']
+          git = lambda *args: subprocess.check_output(['git', '-C', str(root), *args])
+          assert git('rev-parse', 'HEAD').decode().strip() == expected
+          records = git('ls-tree', '-r', '-z', expected, '--', 'pkg/asymptoteobserve')
+          lines = []
+          for record in records.split(b'\0'):
+              if not record:
+                  continue
+              metadata, name = record.split(b'\t', 1)
+              mode, kind, oid = metadata.split()
+              assert mode == b'100644' and kind == b'blob', (mode, name)
+              path = root / name.decode()
+              assert stat.S_ISREG(path.lstat().st_mode), str(path)
+              data = path.read_bytes()
+              assert data == git('cat-file', 'blob', oid.decode()), name
+              digest = hashlib.sha256(data).hexdigest()
+              lines.append(f'{digest}  {name.decode()}\n')
+          manifest = ''.join(lines).encode()
+          actual = hashlib.sha256(manifest).hexdigest()
+          assert len(lines) == 121, len(lines)
+          assert actual == os.environ['MODULE_MANIFEST_SHA256'], actual
+          assert not git('status', '--porcelain', '--untracked-files=all', '--', 'pkg/asymptoteobserve'), 'module dirty'
+          module = root / 'pkg/asymptoteobserve/go.mod'
+          assert '\ngo 1.27.0\n' in module.read_text()
+          assert '\ntoolchain go1.27.2\n' in module.read_text()
+          print(f'product_head={expected} module_files={len(lines)} module_manifest_sha256={actual}')
+          print(manifest.decode(), end='')
+          SOURCE_PROOF
+          "$python_bin" "$run_root/verify-source.py" "$GITHUB_WORKSPACE/source"
+          /usr/bin/uname -a
+          /usr/bin/sw_vers
+          /usr/bin/clang --version
+
+      - name: Download locked modules into job-owned paths
+        working-directory: source/pkg/asymptoteobserve
+        run: |
+          set -euo pipefail
+          isolated_env=(
+            /usr/bin/env -i
+            "PATH=$(dirname "$B2_GO_BIN"):/usr/bin:/bin:/usr/sbin:/sbin"
+            "HOME=$B2_RUN_ROOT/home" "USERPROFILE=$B2_RUN_ROOT/home"
+            "XDG_CONFIG_HOME=$B2_RUN_ROOT/xdg-config" "XDG_DATA_HOME=$B2_RUN_ROOT/xdg-data"
+            "XDG_CACHE_HOME=$B2_RUN_ROOT/xdg-cache" "TMPDIR=$B2_RUN_ROOT/tmp"
+            "TMP=$B2_RUN_ROOT/tmp" "TEMP=$B2_RUN_ROOT/tmp"
+            "GOTMPDIR=$B2_RUN_ROOT/go-tmp" "GOCACHE=$B2_RUN_ROOT/go-build"
+            "GOMODCACHE=$B2_RUN_ROOT/go-mod" "GOPATH=$B2_RUN_ROOT/go-path"
+            GOTOOLCHAIN=local GOWORK=off GOENV=off GOTELEMETRY=off
+            CGO_ENABLED=1 CC=/usr/bin/clang CXX=/usr/bin/clang++
+            GOMAXPROCS=2 GOFLAGS=-p=1
+            GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
+          )
+          "${isolated_env[@]}" "$B2_GO_BIN" telemetry off
+          "${isolated_env[@]}" "$B2_GO_BIN" version
+          "${isolated_env[@]}" "$B2_GO_BIN" env GOVERSION GOOS GOARCH CGO_ENABLED GOTOOLCHAIN GOTELEMETRY
+          test "$("${isolated_env[@]}" "$B2_GO_BIN" env GOVERSION)" = go1.27.2
+          "${isolated_env[@]}" "$B2_GO_BIN" mod download
+          "$B2_PYTHON_BIN" "$B2_RUN_ROOT/verify-source.py" "$GITHUB_WORKSPACE/source"
+
+      - name: Run entire unchanged shared module with race detector offline
+        working-directory: source/pkg/asymptoteobserve
+        run: |
+          set -euo pipefail
+          isolated_env=(
+            /usr/bin/env -i
+            "PATH=$(dirname "$B2_GO_BIN"):/usr/bin:/bin:/usr/sbin:/sbin"
+            "HOME=$B2_RUN_ROOT/home" "USERPROFILE=$B2_RUN_ROOT/home"
+            "XDG_CONFIG_HOME=$B2_RUN_ROOT/xdg-config" "XDG_DATA_HOME=$B2_RUN_ROOT/xdg-data"
+            "XDG_CACHE_HOME=$B2_RUN_ROOT/xdg-cache" "TMPDIR=$B2_RUN_ROOT/tmp"
+            "TMP=$B2_RUN_ROOT/tmp" "TEMP=$B2_RUN_ROOT/tmp"
+            "GOTMPDIR=$B2_RUN_ROOT/go-tmp" "GOCACHE=$B2_RUN_ROOT/go-build"
+            "GOMODCACHE=$B2_RUN_ROOT/go-mod" "GOPATH=$B2_RUN_ROOT/go-path"
+            GOTOOLCHAIN=local GOWORK=off GOENV=off GOTELEMETRY=off
+            CGO_ENABLED=1 CC=/usr/bin/clang CXX=/usr/bin/clang++
+            GOMAXPROCS=2 "GOFLAGS=-p=1 -mod=readonly"
+            GOPROXY=off GOSUMDB=off
+          )
+          printf 'command=go test -race -json -count=1 -p=1 ./...\n'
+          set +e
+          "${isolated_env[@]}" "$B2_GO_BIN" test -race -json -count=1 -p=1 ./... 2>&1 | /usr/bin/tee "$B2_RUN_ROOT/shared-race.jsonl"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          test_status="${statuses[0]}"
+          tee_status="${statuses[1]}"
+          printf 'product_sha=%s go_test_exit=%s tee_exit=%s\n' "$PRODUCT_SHA" "$test_status" "$tee_status"
+          "$B2_PYTHON_BIN" - "$B2_RUN_ROOT/shared-race.jsonl" <<'TEST_COUNTS'
+          import collections, json, pathlib, sys
+          counts = collections.Counter()
+          for line in pathlib.Path(sys.argv[1]).read_text(errors='replace').splitlines():
+              try:
+                  event = json.loads(line)
+              except ValueError:
+                  counts['non_json_lines'] += 1
+                  continue
+              kind = 'test' if event.get('Test') else 'package'
+              if event.get('Action') in ('pass', 'fail', 'skip'):
+                  counts[f"{kind}_{event['Action']}"] += 1
+          print('race_json_counts=' + json.dumps(dict(sorted(counts.items())), sort_keys=True))
+          TEST_COUNTS
+          "$B2_PYTHON_BIN" "$B2_RUN_ROOT/verify-source.py" "$GITHUB_WORKSPACE/source"
+          test "$tee_status" -eq 0
+          exit "$test_status"
